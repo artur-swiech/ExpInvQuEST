@@ -32,20 +32,16 @@ def edge(eigvals, r, gamma):
 def inverse_quest(empirical_eigvals, r, gamma):
 
     min_k, max_k = edge(empirical_eigvals, r, gamma)
-        #TODO: better control points
-    k = np.linspace(min_k, max_k, 500)
+    #TODO: better control points
+    k = np.linspace(min_k*0.9999, max_k*1.0001, 1000)
 
     def f(eigvals):
         q = QuEST(eigvals, r, gamma, k)
-        eig = q.Q()[0]
-        return ((eig - empirical_eigvals[:-1])**2).sum()
+        eig, deig = q.Q()
+        residuals = eig - empirical_eigvals[:-1]
+        return (residuals**2).sum(), 2.0 * residuals.dot(deig)
 
-    def df(eigvals):
-        q = QuEST(eigvals, r, gamma, k)
-        eig,deig = q.Q()
-        return 2.0 * (eig - empirical_eigvals[:-1]).dot(deig)
-
-    minimizer_kwargs = {'jac': df,
+    minimizer_kwargs = {'jac': True,
                         'bounds': [(min(empirical_eigvals),max(empirical_eigvals))
                                    for _ in range(len(empirical_eigvals))],
                         'method': 'SLSQP'
@@ -85,7 +81,7 @@ class QuEST:
             fun = lambda Z_: complex_to_array(
                 z - self.z_from_Z(array_to_complex(Z_))),
             #TODO: Better starting point?
-            x0 = np.array([z.real, 1]))
+            x0 = np.array([z.real, 1.1]))
 
     def Z_from_z(self, z):
         Z = self.find_Z_from_z(z).x
@@ -188,19 +184,27 @@ class QuEST:
         yip1 = y[1:]
 
         ak2diff = np.array([((a * k2diff)[m+1:l]).sum() for m,l in zip(M,L)])
-        dadLambdak2diff = 0.5 * np.array([((dadLambda[m+1:l]).T *
+        dadLambdak2diff = np.array([((dadLambda[m+1:l]).T *
                 k2diff[m+1:l]).sum(axis=1) for m,l in zip(M,L)])
         amdxidLambda = ((cm - yi) / am * dadLambdam.T).T - dcdfdLambdam
         aldxip1dLambda = ((cl - yip1) / al * dadLambdal.T).T - dcdfdLambdal
 
-        Q = 0.5 * np.where(M==L, am * x2diff,
-                am * (kmp1**2 - xi**2) + ak2diff + al * (xip1**2 - kl**2))
-        dQdLambda = np.where(M==L,
-                -(amdxidLambda.T * xi) + 0.5 * (dadLambdam.T * x2diff)
-                + aldxip1dLambda.T * xip1,
-                0.5 * (dadLambdam.T * (kmp1**2 - xi**2)) - amdxidLambda.T * xi +
-                dadLambdak2diff.T + 0.5 * (dadLambdal.T * (xip1**2 - kl**2))
-                + aldxip1dLambda.T * xip1).T
+        Q = 0.5 * np.where(M==L,
+                           am * x2diff,
+                             am * (kmp1**2 - xi**2)
+                           + ak2diff
+                           + al * (xip1**2 - kl**2)
+        )
+        dQdLambda = 0.5 * np.where(M==L,
+                                   - 2.0 * amdxidLambda.T * xi
+                                   + dadLambdam.T * x2diff
+                                   + 2.0 * aldxip1dLambda.T * xip1,
+                                     dadLambdam.T * (kmp1**2 - xi**2)
+                                   - 2.0 * amdxidLambda.T * xi
+                                   + dadLambdak2diff.T
+                                   + dadLambdal.T * (xip1**2 - kl**2)
+                                   + 2.0 * aldxip1dLambda.T * xip1
+        ).T
 
         Q *= self.N
         dQdLambda *= self.N
